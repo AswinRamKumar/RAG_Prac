@@ -12,7 +12,7 @@ from src.utils import filesystem
 
 st.set_page_config(page_title="GitHub RAG", page_icon="🤖", layout="wide")
 
-st.title("🤖 GitHub Code Assistant (v2)")
+st.title("🤖 GitHub Code Assistant")
 
 # Initialize Engine
 if "rag" not in st.session_state:
