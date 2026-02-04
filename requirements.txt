@@ -8,3 +8,5 @@ python-dotenv
 tenacity
 watchdog
 openai
+pysqlite3-binary ; sys_platform == 'linux'
+tiktoken
