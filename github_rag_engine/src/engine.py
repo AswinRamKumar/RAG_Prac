@@ -51,76 +51,31 @@ class GitHubRAG:
         self.query_engine = None
         self.collection = None
         self.active_repo = repo_name
-             
+
         print(f"🔄 Switching to repo: {repo_name}")
-        
+
         safe_name = f"repo_{repo_name}".replace(" ", "_").replace(".", "_")
-        self.collection = self.chroma_client.get_or_create_collection(safe_name)
-        
+
+        try:
+            self.collection = self.chroma_client.get_collection(safe_name)
+            print("✅ Existing collection found.")
+        except Exception:
+            print("⚠️ Collection not found. Creating new one.")
+            self.collection = self.chroma_client.create_collection(safe_name)
+
         if self.collection.count() > 0:
             print(f"✅ Found {self.collection.count()} chunks. Loading index...")
             vector_store = ChromaVectorStore(chroma_collection=self.collection)
             storage_context = StorageContext.from_defaults(vector_store=vector_store)
+
             self.index = VectorStoreIndex.from_vector_store(
                 vector_store,
                 storage_context=storage_context
             )
         else:
-            print("⚠️ Collection empty. awaiting ingestion.")
+            print("⚠️ Collection empty. Awaiting ingestion.")
             self.index = None
 
-    def ingest_repo(self, repo_url: str):
-        repo_path = filesystem.clone_repo(repo_url)
-        repo_name = repo_path.name
-        
-        self.initialize_repo(repo_name)
-        
-        if self.collection.count() > 0:
-             print("ℹ️ Repo already indexed. Skipping processing.")
-             return
-             
-        source_files = filesystem.get_source_files(repo_path)
-        if not source_files:
-            return
-
-        repo_map_str = filesystem.generate_repo_map(repo_path)
-        map_doc = Document(
-            text=repo_map_str,
-            metadata={"file_path": "REPO_STRUCTURE.txt", "type": "structure"}
-        )
-        
-        reader = SimpleDirectoryReader(
-            input_files=[str(f) for f in source_files],
-            file_metadata=chunking.file_metadata_extractor
-        )
-        docs = reader.load_data()
-        all_docs = [map_doc] + docs
-        nodes = chunking.get_nodes_adaptive(all_docs)
-        
-        if os.path.exists(config.INGESTION_CACHE):
-            kv_store = SimpleKVStore.from_persist_path(str(config.INGESTION_CACHE))
-        else:
-            kv_store = SimpleKVStore()
-            
-        pipeline = IngestionPipeline(
-            transformations=[Settings.embed_model],
-            cache=IngestionCache(cache=kv_store)
-        )
-        
-        nodes_with_embeddings = pipeline.run(nodes=nodes)
-        
-        try:
-            kv_store.persist(str(config.INGESTION_CACHE))
-        except Exception as e:
-            print(f"⚠️ Warning: Could not save embedding cache: {e}")
-        
-        vector_store = ChromaVectorStore(chroma_collection=self.collection)
-        storage_context = StorageContext.from_defaults(vector_store=vector_store)
-        self.index = VectorStoreIndex(
-            nodes_with_embeddings,
-            storage_context=storage_context
-        )
-        print("✅ Ingestion & Indexing Complete!")
 
     def query(self, question: str):
         if not self.index:
