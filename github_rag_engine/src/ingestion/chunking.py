@@ -6,6 +6,29 @@ from llama_index.core import Document
 from llama_index.core.node_parser import CodeSplitter, MarkdownNodeParser, SentenceSplitter
 from src import config
 
+# Map extensions to tree-sitter languages
+# Ensure tree-sitter-languages is installed for these to work
+EXTENSION_TO_LANGUAGE = {
+    ".py": "python",
+    ".js": "javascript",
+    ".jsx": "javascript",
+    ".ts": "typescript",
+    ".tsx": "typescript",
+    ".java": "java",
+    ".cpp": "cpp",
+    ".cc": "cpp",
+    ".h": "cpp",
+    ".c": "c",
+    ".cs": "c_sharp", 
+    ".go": "go",
+    ".rs": "rust",
+    ".rb": "ruby",
+    ".php": "php",
+    ".scala": "scala",
+    ".swift": "swift", 
+    ".kt": "kotlin",
+}
+
 def file_metadata_extractor(file_path: str) -> dict:
     return {
         "file_path": file_path,
@@ -18,41 +41,44 @@ def get_nodes_adaptive(documents: List[Document]) -> List[Document]:
     
     tokenizer = tiktoken.encoding_for_model(config.OPENAI_MODEL).encode
     
-    py_splitter = CodeSplitter(
-        language="python", 
-        chunk_lines=150, 
-        chunk_lines_overlap=30, 
-        max_chars=3000
+    # Generic text splitter for fallback
+    sentence_splitter = SentenceSplitter(
+        chunk_size=1000,
+        chunk_overlap=200,
+        tokenizer=tokenizer
     )
     
+    # Markdown specific
     md_splitter = MarkdownNodeParser(
         chunk_size=800,
         chunk_overlap=100
     )
     
-    text_splitter = SentenceSplitter(
-        chunk_size=512,
-        chunk_overlap=50,
-        tokenizer=tokenizer
-    )
-    
-    print(f"🧩 Chunking {len(documents)} documents...")
     for doc in documents:
         ext = doc.metadata.get("extension", "").lower()
-        fn = doc.metadata.get("file_name", "")
         
-        if ext == ".py":
-            nodes = py_splitter.get_nodes_from_documents([doc])
-        elif ext == ".md":
-            nodes = md_splitter.get_nodes_from_documents([doc])
+        # 1. Markdown
+        if ext == ".md":
+            all_nodes.extend(md_splitter.get_nodes_from_documents([doc]))
+            
+        # 2. Supported Code Language
+        elif ext in EXTENSION_TO_LANGUAGE:
+            lang = EXTENSION_TO_LANGUAGE[ext]
+            try:
+                code_splitter = CodeSplitter(
+                    language=lang,
+                    chunk_lines=150,
+                    chunk_lines_overlap=30,
+                    max_chars=3000
+                )
+                all_nodes.extend(code_splitter.get_nodes_from_documents([doc]))
+            except Exception as e:
+                # If tree-sitter grammar missing, fallback
+                print(f"⚠️ Code split warning for {doc.metadata['file_name']} ({lang}): {e}. Using fallback.")
+                all_nodes.extend(sentence_splitter.get_nodes_from_documents([doc]))
+                
+        # 3. Everything else (Text, unknown code)
         else:
-            nodes = text_splitter.get_nodes_from_documents([doc])
+            all_nodes.extend(sentence_splitter.get_nodes_from_documents([doc]))
             
-        for i, n in enumerate(nodes):
-            n.metadata["chunk_id"] = i
-            n.metadata["file_name"] = fn
-            n.metadata["file_ext"] = ext
-            
-        all_nodes.extend(nodes)
-        
     return all_nodes

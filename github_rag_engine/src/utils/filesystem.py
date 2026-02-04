@@ -62,3 +62,16 @@ def generate_repo_map(root_dir: Path) -> str:
             lines.append(f"{rel_path.as_posix()}{marker}")
 
     return "\n".join(sorted(lines))
+
+def get_repo_url(repo_path: Path) -> str:
+    """Extracts the remote origin URL from a local git repo."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_path), "remote", "get-url", "origin"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        return result.stdout.strip()
+    except Exception:
+        return ""
